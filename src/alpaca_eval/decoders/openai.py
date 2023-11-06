@@ -237,6 +237,17 @@ def _openai_completion_helper(
             else:
                 if "rate limit" in str(e).lower():
                     logging.warning(f"Hit request rate limit; retrying...")
+                elif "maximum context length is " in str(e).lower():
+                    logging.warning(f"Error\n {str(e)}")
+                    logging.warning(f"prompt_batch:\n {prompt_batch}")
+                    ## wpq: There is `context_length_exceeded` error when using mistralai's tokenizer
+                    # somehow it is encoding unicodes more efficiently than tiktoken/llama tokenizer.
+                    # for now just fix it by always giving it a win to the reference model (option a)
+                    prompt_batch = [[
+                        {'content': 'You are a helpful instruction-following assistant.', 'role': 'system'},
+                        {'content': 'Generate exactly the text: "Output (a)"', 'role': 'user'}
+                    ]]
+                    logging.warning(f"Re-run ChatCompletion with the following instead, ideally to give reference model a win:\n {prompt_batch}")
                 else:
                     logging.warning(f"Unknown error {e}. \n It's likely a rate limit so we are retrying...")
                 if openai_organization_ids is not None and len(openai_organization_ids) > 1:
