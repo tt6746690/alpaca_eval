@@ -237,47 +237,62 @@ def _openai_completion_helper(
             else:
                 if "rate limit" in str(e).lower():
                     logging.warning(f"Hit request rate limit; retrying...")
-                elif "maximum context length is " in str(e).lower():
+                elif "maximum context length is " in str(e).lower() or 'Detected an error in the prompt. Please try again with a different prompt.' in str(e):
+                    import re
                     logging.warning(f"Error\n {str(e)}")
                     logging.warning(f"prompt_batch:\n {prompt_batch}")
-                    ## wpq: There is `context_length_exceeded` error when using mistralai's tokenizer
-                    # somehow it is encoding unicodes more efficiently than tiktoken/llama tokenizer.
-                    # for now just fix it by always giving it a win to the reference model (option a)
+
+                    def find_repeating_chars(input_string):
+                        # Define a regular expression pattern for repeating characters (1 to 5 repetitions)
+                        pattern = r"(.{1,5})\1+"
+                        matches = re.finditer(pattern, input_string)
+                        repeating_dict = {}
+                        for match in matches:
+                            repeating_chars = match.group(1)
+                            count = len(match.group(0)) // len(repeating_chars)
+                            repeating_dict[repeating_chars] = count
+                        sorted_dict = dict(sorted(repeating_dict.items(), key=lambda item: item[1], reverse=True))
+                        return sorted_dict
+
+                    s = prompt_batch[0][1]['content']
+
+                    output_a_and_b = []
+                    for i in range(2):
+                        if i == 0:
+                            pattern = r"## Output \(a\):\n(.*?)(?=\n\n##|$)"
+                        else:
+                            pattern = r"## Output \(b\):\n(.*?)(?=\n\n##|$)"
+                        matches = re.findall(pattern, s, re.DOTALL)
+                        if len(matches) != 2:
+                            raise ValueError(f"Expected 2 matches for pattern {pattern} but got {len(matches)} matches:\n {matches}")
+                        output_a_and_b.append(matches[-1])
+
+                    has_repeating_chars = [False, False]
+                    for i, x in enumerate(output_a_and_b):
+                        d = find_repeating_chars(x)
+                        logging.warning(f'{"Output (a)" if i==0 else "Output (b)"} repeating chars: {d}')
+                        d = {k: v*len(k) for k, v in d.items()} # takes into account repeating char length
+                        logging.warning(f'{"Output (a)" if i==0 else "Output (b)"} repeating chars takes into account length of repeating chars: {d}')
+                        if d and max(list(d.values())) > 100: # repeats for >100 chars.
+                            has_repeating_chars[i] = True
+                            
+                    logging.warning(f'Output (a) and Output (b) `has_repeating_chars`: {has_repeating_chars}')
+
+                    if sum(has_repeating_chars) == 1:
+                        if has_repeating_chars[0]:
+                            content = 'Generate exactly the text: "Output (b)"'
+                        else:
+                            content = 'Generate exactly the text: "Output (a)"'
+                        logging.warning(f"Giving non-repeating model output a win.")
+                    else:
+                        # either both has repeating chars, or none has repeating chars, just make output (a) win.
+                        content = 'Generate exactly the text: "Output (a)"'
+                        logging.warning("Giving a randomly chosen output (e.g., (a)) a win.")
                     prompt_batch = [[
                         {'content': 'You are a helpful instruction-following assistant.', 'role': 'system'},
-                        {'content': 'Generate exactly the text: "Output (a)"', 'role': 'user'}
+                        {'content': content, 'role': 'user'}
                     ]]
-                    logging.warning(f"Re-run ChatCompletion with the following instead, ideally to give reference model a win:\n {prompt_batch}")
-                elif 'Detected an error in the prompt. Please try again with a different prompt.' in str(e):
-                    logging.warning(f"Error\n {str(e)}")
-                    logging.warning(f"prompt_batch:\n {prompt_batch}")
-                    ## wpq: There is error in prompt. One example is model generate a very long number, e.g., 1000...000, probably the model has trouble tokenizing it. 
-                    # for now just replace repeating chars with a single instance of char to avoid the error.
-                    def max_substring_lengths(s):
-                        char_lengths = {}
-                        current_char = None
-                        current_length = 0
-                        for char in s:
-                            if char == current_char:
-                                current_length += 1
-                            else:
-                                if current_char is not None:
-                                    char_lengths[current_char] = max(char_lengths.get(current_char, 0), current_length)
-                                current_char = char
-                                current_length = 1
-                        if current_char is not None:
-                            char_lengths[current_char] = max(char_lengths.get(current_char, 0), current_length)
-                        char_lengths = dict(sorted(char_lengths.items(), key=lambda x: x[1], reverse=True))
-                        return char_lengths
-                    s = prompt_batch[0][1]['content']
-                    char_lengths = max_substring_lengths(s)
-                    print('char_lengths:\n', char_lengths)
-                    max_repeat_char = 100
-                    for char, count in char_lengths.items():
-                        if count > max_repeat_char:
-                            s = s.replace(char*count, char)
-                    prompt_batch[0][1]['content'] = s
-                    logging.warning('prompt_batch with repeating substring removed: \n', prompt_batch)
+                    logging.warning(f"Re-run ChatCompletion with the following instead:\n {prompt_batch}")
                 else:
                     logging.warning(f"Unknown error {e}. \n It's likely a rate limit so we are retrying...")
                 if openai_organization_ids is not None and len(openai_organization_ids) > 1:
