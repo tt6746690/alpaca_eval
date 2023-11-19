@@ -248,6 +248,36 @@ def _openai_completion_helper(
                         {'content': 'Generate exactly the text: "Output (a)"', 'role': 'user'}
                     ]]
                     logging.warning(f"Re-run ChatCompletion with the following instead, ideally to give reference model a win:\n {prompt_batch}")
+                elif 'Detected an error in the prompt. Please try again with a different prompt.' in str(e):
+                    logging.warning(f"Error\n {str(e)}")
+                    logging.warning(f"prompt_batch:\n {prompt_batch}")
+                    ## wpq: There is error in prompt. One example is model generate a very long number, e.g., 1000...000, probably the model has trouble tokenizing it. 
+                    # for now just replace repeating chars with a single instance of char to avoid the error.
+                    def max_substring_lengths(s):
+                        char_lengths = {}
+                        current_char = None
+                        current_length = 0
+                        for char in s:
+                            if char == current_char:
+                                current_length += 1
+                            else:
+                                if current_char is not None:
+                                    char_lengths[current_char] = max(char_lengths.get(current_char, 0), current_length)
+                                current_char = char
+                                current_length = 1
+                        if current_char is not None:
+                            char_lengths[current_char] = max(char_lengths.get(current_char, 0), current_length)
+                        char_lengths = dict(sorted(char_lengths.items(), key=lambda x: x[1], reverse=True))
+                        return char_lengths
+                    s = prompt_batch[0][1]['content']
+                    char_lengths = max_substring_lengths(s)
+                    print('char_lengths:\n', char_lengths)
+                    max_repeat_char = 100
+                    for char, count in char_lengths.items():
+                        if count > max_repeat_char:
+                            s = s.replace(char*count, char)
+                    prompt_batch[0][1]['content'] = s
+                    logging.warning('prompt_batch with repeating substring removed: \n', prompt_batch)
                 else:
                     logging.warning(f"Unknown error {e}. \n It's likely a rate limit so we are retrying...")
                 if openai_organization_ids is not None and len(openai_organization_ids) > 1:
