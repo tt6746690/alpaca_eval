@@ -237,7 +237,7 @@ def _openai_completion_helper(
             else:
                 if "rate limit" in str(e).lower():
                     logging.warning(f"Hit request rate limit; retrying...")
-                elif "maximum context length is " in str(e).lower() or 'Detected an error in the prompt. Please try again with a different prompt.' in str(e):
+                elif "maximum context length is " in str(e).lower() or 'Detected an error in the prompt. Please try again with a different prompt.' in str(e) or 'repetitive patterns in your prompt' in str(e):
                     import re
                     logging.warning(f"Error\n {str(e)}")
                     logging.warning(f"prompt_batch:\n {prompt_batch}")
