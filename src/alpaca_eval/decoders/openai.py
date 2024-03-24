@@ -264,17 +264,22 @@ def _openai_completion_helper(
                             pattern = r"## Output \(b\):\n(.*?)(?=\n\n##|$)"
                         matches = re.findall(pattern, s, re.DOTALL)
                         if len(matches) != 2:
-                            raise ValueError(f"Expected 2 matches for pattern {pattern} but got {len(matches)} matches:\n {matches}")
-                        output_a_and_b.append(matches[-1])
+                            logging.warning(f"Expected 2 matches for pattern {pattern} but got {len(matches)} matches:\n {matches}")
+                            output_a_and_b.append('') 
+                        else:
+                            output_a_and_b.append(matches[-1])
 
                     has_repeating_chars = [False, False]
                     for i, x in enumerate(output_a_and_b):
-                        d = find_repeating_chars(x)
-                        logging.warning(f'{"Output (a)" if i==0 else "Output (b)"} repeating chars: {d}')
-                        d = {k: v*len(k) for k, v in d.items()} # takes into account repeating char length
-                        logging.warning(f'{"Output (a)" if i==0 else "Output (b)"} repeating chars takes into account length of repeating chars: {d}')
-                        if d and max(list(d.values())) > 100: # repeats for >100 chars.
-                            has_repeating_chars[i] = True
+                        if x == '':
+                            has_repeating_chars[i] = True # if cannot parse output, just say it's repeating.
+                        else:
+                            d = find_repeating_chars(x)
+                            logging.warning(f'{"Output (a)" if i==0 else "Output (b)"} repeating chars: {d}')
+                            d = {k: v*len(k) for k, v in d.items()} # takes into account repeating char length
+                            logging.warning(f'{"Output (a)" if i==0 else "Output (b)"} repeating chars takes into account length of repeating chars: {d}')
+                            if d and max(list(d.values())) > 100: # repeats for >100 chars.
+                                has_repeating_chars[i] = True
                             
                     logging.warning(f'Output (a) and Output (b) `has_repeating_chars`: {has_repeating_chars}')
 
